@@ -3,6 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"strings"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/vault/api"
@@ -10,9 +14,6 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"log"
-	"os"
-	"strings"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	resInit            = provider + "_init"
 	argVaultUrl        = "vault_url"
 	argVaultAddr       = "vault_addr"
+	argVaulProtocol    = "vault_proto"
 	argVaultSkipVerify = "vault_skip_verify"
 	argRequestHeaders  = "request_headers"
 	argKubeConfig      = "kube_config"
@@ -97,6 +99,12 @@ func providerSchema() map[string]*schema.Schema {
 			Type:        schema.TypeString,
 			Optional:    true,
 			Description: "Vault instance URL",
+		},
+		argVaulProtocol: {
+			Type:        schema.TypeString,
+			Optional:    true,
+			Description: "Protocol with which vault will be accessed",
+			Default:     "http",
 		},
 		argVaultSkipVerify: {
 			Type:        schema.TypeBool,
@@ -180,6 +188,9 @@ func providerSchema() map[string]*schema.Schema {
 
 func configure(version string, p *schema.Provider) func(context.Context, *schema.ResourceData) (interface{}, diag.Diagnostics) {
 	return func(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+		if d.Get(argVaulProtocol).(string) != "http" && d.Get(argVaulProtocol).(string) != "https" {
+			return nil, diag.Errorf("The only available vault protocols are http and https")
+		}
 		a := &apiClient{}
 		loader := &clientcmd.ClientConfigLoadingRules{}
 		overrides := &clientcmd.ConfigOverrides{}
@@ -245,7 +256,7 @@ func configure(version string, p *schema.Provider) func(context.Context, *schema
 				return nil, diag.FromErr(fmt.Errorf("failed to configure: %s", err))
 			}
 
-			a.url = fmt.Sprintf("http://localhost:%s", a.kubeConn.localPort)
+			a.url = fmt.Sprintf("%s://localhost:%s", d.Get(argVaulProtocol).(string), a.kubeConn.localPort)
 		} else {
 			if u := d.Get(argVaultAddr).(string); u != "" {
 				a.url = u
